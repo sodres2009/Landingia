@@ -1,0 +1,10 @@
+{
+  "workload_id": 136,
+  "container_id": 138,
+  "docker_container_id": "199436814ed244ea86a3212cc923f229e16abd48075381aed7dd29e4eaf9ec69",
+  "command": "cd /app && (HOSTNAME=0.0.0.0 PORT=3000 NODE_ENV=production nohup node server.js > /tmp/app.log 2>&1 &) ; sleep 4 ; tail -20 /tmp/app.log ; node -e \"fetch('http://127.0.0.1:3000/').then(r=>console.log('LOCAL_HTTP',r.status)).catch(e=>console.log('LOCAL_ERR',e.message))\"",
+  "exit_code": 0,
+  "stdout": "   ▲ Next.js 15.5.25\n   - Local:        http://localhost:3000\n   - Network:      http://0.0.0.0:3000\n\n ✓ Starting...\n ✓ Ready in 500ms\nLOCAL_HTTP 200\n",
+  "stderr": "",
+  "output": "   ▲ Next.js 15.5.25\n   - Local:        http://localhost:3000\n   - Network:      http://0.0.0.0:3000\n\n ✓ Starting...\n ✓ Ready in 500ms\nLOCAL_HTTP 200\n"
+}

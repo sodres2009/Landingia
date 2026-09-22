@@ -1,0 +1,14 @@
+proposta 1: http=200 source=provider seccoes=6 6.19s anos-maus=nenhum
+   layouts: hero-split,benefits-zigzag,benefits-grid,proof-stats,stack,form-split
+   hero: "Nº1 em seminovos em Coimbra"
+proposta 2: http=200 source=provider seccoes=6 10.005s anos-maus=2024
+   layouts: hero-split,benefits-zigzag,benefits-grid,proof-stats,stack,form-split
+   hero: "Nº1 em Coimbra\nTrês cliques. O teu Mercedes-Benz A-Class em 2026.\nQualidade e economia 
+proposta 3: http=200 source=provider seccoes=6 5.121s anos-maus=nenhum
+   layouts: hero-split,benefits-zigzag,benefits-grid,testimonials-cards,stack,form-split
+   hero: "Seminovos verificados em Coimbra"
+propostas-reais=3/3
+publicar: http=200 slug=e2e-smoke-mucusp3h ok=true
+url-publica: http=200 seccoes-renderizadas=false layouts=false
+lead: http=200 ok=true {"ok":true,"message":"Obrigado! Entraremos em contacto."}
+anos-maus-na-url=nenhum
