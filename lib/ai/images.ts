@@ -1,11 +1,12 @@
 /**
  * Pesquisa de imagens do agente.
  * Estratégia em dois níveis:
- * 1. Catálogo curado por tema (Unsplash) — qualidade garantida nos temas comuns.
- * 2. Fallback LoremFlickr — pesquisa real na Internet por palavras-chave
- *    extraídas do pedido (sem necessidade de chave de API). Assim "carros"
- *    devolve carros mesmo fora do catálogo.
+ * 1. Pexels API (chave PEXELS_API_KEY) — fotografia real com curadoria.
+ * 2. Catálogo curado por tema (Unsplash) — rede de segurança sem chave.
+ * O LoremFlickr foi removido por completo: era um pool aleatório do Flickr.
  */
+
+import { pexelsSearch } from './pexels';
 
 interface ImagePool {
   keywords: RegExp;
@@ -159,7 +160,7 @@ const PT_EN: Record<string, string> = {
   pets: 'pet', veterinario: 'veterinary',
 };
 
-function slugWords(query: string): string {
+function slugWords(query: string, max = 2): string[] {
   const words = query
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -171,35 +172,57 @@ function slugWords(query: string): string {
   for (const w of words) {
     const t = PT_EN[w] ?? w;
     if (!en.includes(t)) en.push(t);
-    if (en.length >= 2) break;
+    if (en.length >= max) break;
   }
-  return en.join(',');
+  return en;
 }
 
-/** Pesquisa real por palavras-chave (LoremFlickr, sem chave de API). */
-function webImage(query: string, seed: number): string {
-  const words = slugWords(query) || 'business,office';
-  return `https://loremflickr.com/1600/900/${encodeURIComponent(words)}?lock=${Math.abs(seed) % 365}`;
+export interface PickedPhoto {
+  url: string;
+  alt: string;
+  source: 'pexels' | 'curated';
+}
+
+/** Escolha curada pura (sem rede): catálogo por tema, fallback genérico. */
+function curatedPhoto(query: string, exclude: string[] = [], seed = 0): string {
+  const pool = poolFor(query);
+  if (!pool) return fallbackImage(seed);
+  const available = pool.photos.filter((p) => !exclude.includes(url(p)));
+  const list = available.length ? available : pool.photos;
+  return url(list[Math.abs(seed) % list.length]);
 }
 
 /**
- * Pesquisa com tags EM INGLÊS já decididas pelo agente (a intenção do
- * utilizador interpretada pelo modelo). Sem o limite de 2 palavras do
- * dicionário PT — as tags vêm prontas e específicas.
+ * Pesquisa com tags EM INGLÊS decididas pelo agente: primeiro Pexels
+ * (fotografia real com curadoria), depois o catálogo curado.
+ * O LoremFlickr foi eliminado — devolvia fotos aleatórias do Flickr.
  */
-export function pickByTags(tags: string[], exclude: string[] = [], seed = 0): string {
+export async function pickByTags(tags: string[], exclude: string[] = [], seed = 0): Promise<PickedPhoto> {
   const clean = tags
-    .map((t) => t.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-'))
+    .map((t) => t.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, ' '))
     .filter((t) => t.length > 1)
     .slice(0, 3);
-  if (!clean.length) return webImage(tags.join(' '), seed);
-  const base = `https://loremflickr.com/1600/900/${clean.join(',')}`;
-  // Tenta locks diferentes até sair de imagens já usadas na página.
-  for (let i = 0; i < 6; i++) {
-    const candidate = `${base}?lock=${(Math.abs(seed) * 7 + i * 23) % 365}`;
-    if (!exclude.includes(candidate)) return candidate;
+  const query = clean.join(' ');
+  const found = await pexelsSearch(query || 'business meeting', 8);
+  if (found.length) {
+    const picked = found.find((p) => !exclude.includes(p.url)) ?? found[Math.abs(seed) % found.length];
+    return { url: picked.url, alt: picked.alt, source: 'pexels' };
   }
-  return `${base}?lock=${(Math.abs(seed) * 7) % 365}`;
+  return { url: curatedPhoto(query, exclude, seed), alt: '', source: 'curated' };
+}
+
+/**
+ * Escolha de imagem para o SERVIDOR: Pexels primeiro (query em inglês a
+ * partir do texto/descrição), catálogo curado como rede de segurança.
+ */
+export async function pickPhoto(query: string, exclude: string[] = [], seed = 0): Promise<PickedPhoto> {
+  const en = slugWords(query, 4).join(' ');
+  const found = await pexelsSearch(en || query, 8);
+  if (found.length) {
+    const picked = found.find((p) => !exclude.includes(p.url)) ?? found[Math.abs(seed) % found.length];
+    return { url: picked.url, alt: picked.alt, source: 'pexels' };
+  }
+  return { url: curatedPhoto(query, exclude, seed), alt: '', source: 'curated' };
 }
 
 function poolFor(query: string): ImagePool | undefined {
@@ -207,22 +230,17 @@ function poolFor(query: string): ImagePool | undefined {
 }
 
 /**
- * Escolhe uma imagem para o pedido:
- * tema do catálogo primeiro; se nada bater, pesquisa na Internet por keywords.
- * Nunca repete uma imagem do `exclude` quando há alternativas.
+ * Escolha síncrona e segura no browser: catálogo curado apenas.
+ * (A pesquisa Pexels exige chave e corre só no servidor — pickPhoto.)
  */
 export function pickImage(query: string, exclude: string[] = [], seed = 0): string {
-  const pool = poolFor(query);
-  if (!pool) return webImage(query, seed);
-  const available = pool.photos.filter((p) => !exclude.includes(url(p)));
-  const list = available.length ? available : pool.photos;
-  return url(list[Math.abs(seed) % list.length]);
+  return curatedPhoto(query, exclude, seed);
 }
 
 /** Todas as imagens do tema (útil para o agente mostrar variantes). */
 export function imageCandidates(query: string): string[] {
   const pool = poolFor(query);
-  return pool ? pool.photos.map(url) : [webImage(query, 1), webImage(query, 2), webImage(query, 3)];
+  return pool ? pool.photos.map(url) : FALLBACK.map(url);
 }
 
 /** Imagem genérica quando nenhum tema corresponde. */
@@ -245,10 +263,13 @@ const ROLE_HINTS: Record<string, string> = {
   form: 'office desk meeting laptop',
 };
 
-/** Escolha de imagem com papel: reforça as keywords quando caímos na pesquisa web. */
-export function pickImageForRole(query: string, role: string, exclude: string[] = [], seed = 0): string {
-  const pool = poolFor(query);
-  if (pool) return pickImage(query, exclude, seed);
+/** Escolha de imagem com papel: Pexels com pistas do papel + catálogo. */
+export async function pickImageForRole(query: string, role: string, exclude: string[] = [], seed = 0): Promise<PickedPhoto> {
   const hint = ROLE_HINTS[role] ?? '';
-  return webImage(`${query} ${hint}`.trim(), seed);
+  const photo = await pickPhoto(`${query} ${hint}`.trim(), exclude, seed);
+  if (photo.source === 'pexels') return photo;
+  // Sem Pexels: catálogo curado primeiro com a query original, papel depois.
+  const pool = poolFor(query);
+  if (pool) return { url: curatedPhoto(query, exclude, seed), alt: '', source: 'curated' };
+  return photo;
 }

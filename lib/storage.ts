@@ -50,7 +50,8 @@ function writeJson<T>(key: string, value: T): void {
 
 const VALID_ELEMENT_TYPES = new Set([
   'text', 'list', 'image', 'video', 'button', 'form', 'scheduling', 'modal',
-  'testimonials', 'faq', 'pricing', 'gallery', 'map', 'social', 'stats', 'marquee', 'custom',
+  'testimonials', 'faq', 'pricing', 'gallery', 'map', 'social', 'stats', 'marquee',
+  'demo', 'steps', 'comparison', 'quote', 'chart', 'footer', 'custom',
 ]);
 
 /** Garante que um registo de storage malformado nunca rebenta com o editor. */
@@ -89,9 +90,18 @@ function normalizePage(raw: unknown): LandingPage | null {
     ? (p.sections.map(normalizeSection).filter(Boolean) as BuilderSection[])
     : [];
   const created = typeof p.createdAt === 'string' ? p.createdAt : now();
+  const isStudio = p.kind === 'studio';
+  const rawHtml = typeof p.html === 'string' ? p.html : '';
+  const rawName = typeof p.name === 'string' && p.name.trim() ? p.name.trim() : 'Sem nome';
+  // Auto-renome: páginas Studio antigas gravaram o briefing cru como nome
+  // («tenho um stand de carro aqui na covilha…») — se o HTML tem <title> do
+  // agente e o nome atual parece uma frase (> 6 palavras), usa o do agente.
+  const derived = isStudio && rawHtml ? deriveStudioTitle(rawHtml) : '';
+  const looksLikeBriefing = rawName.split(/\s+/).length > 6 || /^(quero|tenho|uma landing|uma p[áa]gina)/i.test(rawName);
+  const finalName = derived && (rawName === 'Sem nome' || looksLikeBriefing) ? derived.slice(0, 48) : rawName;
   return {
     id: String(p.id),
-    name: typeof p.name === 'string' && p.name.trim() ? p.name : 'Sem nome',
+    name: finalName,
     status,
     createdAt: created,
     updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : created,
@@ -100,7 +110,14 @@ function normalizePage(raw: unknown): LandingPage | null {
     logo: p.logo && typeof p.logo === 'object' ? (p.logo as LandingPage['logo']) : undefined,
     socialLinks: Array.isArray(p.socialLinks) ? (p.socialLinks as SocialLink[]) : undefined,
     aiContext: p.aiContext && typeof p.aiContext === 'object' ? (p.aiContext as AiContext) : undefined,
-    sections: sections.length ? sections : [seedHeroSection()],
+    theme: p.theme && typeof p.theme === 'object' ? (p.theme as LandingPage['theme']) : undefined,
+    // Studio: HTML livre sobrevive à normalização (sem isto, a página virava builder genérico)
+    kind: p.kind === 'studio' ? 'studio' : 'builder',
+    html: typeof p.html === 'string' && p.html ? p.html : undefined,
+    phone: typeof p.phone === 'string' ? p.phone : undefined,
+    // O slug publicado tem de sobreviver ao reload — senão o link perde-se no dashboard.
+    publishedSlug: typeof p.publishedSlug === 'string' && p.publishedSlug ? p.publishedSlug : undefined,
+    sections: sections.length || p.kind === 'studio' ? sections : [seedHeroSection()],
     visits: typeof p.visits === 'number' ? p.visits : 0,
     leads: typeof p.leads === 'number' ? p.leads : 0,
   };
@@ -172,6 +189,15 @@ export function seedPage(): LandingPage {
   };
 }
 
+/** Título inteligente de uma página Studio a partir do <title>/<h1> do próprio HTML.
+ *  Serve para adotar páginas novas e para renomear as antigas gravadas com o briefing cru. */
+export function deriveStudioTitle(html: string): string {
+  const t = /<title[^>]*>([^<]{4,60})<\/title>/i.exec(html)?.[1];
+  if (t) return t.replace(/\s*[|–—-]\s*[^|–—-]{2,24}$/u, '').trim() || t.trim();
+  const h1 = /<h1[^>]*>([\s\S]{4,80}?)<\/h1>/i.exec(html)?.[1];
+  return h1 ? h1.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : '';
+}
+
 export function getPages(): LandingPage[] {
   const raw = readJson<unknown[]>(KEYS.pages, []);
   return (raw.map(normalizePage).filter(Boolean) as LandingPage[]);
@@ -213,6 +239,8 @@ export function planToPage(input: {
   style?: string;
   logo?: { url: string; alt?: string };
   answers?: Record<string, string>;
+  /** Fotos enviadas pelo cliente no /create — ficam guardadas na página para o editor. */
+  photos?: string[];
 }): LandingPage {
   const base = seedPage();
   const sections = input.plan.sections
@@ -234,7 +262,9 @@ export function planToPage(input: {
       brandColors: input.plan.brandColors,
       visualQueries: input.plan.visualQueries,
       answers: input.answers,
+      contentSources: input.photos?.length ? input.photos : undefined,
     },
+    theme: input.plan.theme,
     sections: sections.length ? sections : base.sections,
   };
 }
@@ -245,6 +275,7 @@ export function createPageFromPlan(input: {
   style?: string;
   logo?: { url: string; alt?: string };
   answers?: Record<string, string>;
+  photos?: string[];
 }): LandingPage {
   return savePage(planToPage(input));
 }

@@ -26,7 +26,10 @@ function run(cmd, args, label, shell = false) {
 // Os binários node são chamados diretamente (.cmd do npm não corre fiável aqui).
 const gaudi = (args, label) => run(process.execPath, [CLI, ...args], label);
 
-// 1. Build de produção (standalone, ver next.config.ts)
+// 1. Build de produção (standalone, ver next.config.ts).
+// NEXT_PUBLIC_* é inlinhado no bundle do browser em build — em cloud tem de
+// apontar para o backend FastAPI público, nunca para o 127.0.0.1 do .env.local.
+process.env.NEXT_PUBLIC_API_URL = 'https://app-d76b73421919.factorai.cloud';
 run(process.execPath, [path.join(ROOT, 'node_modules', 'next', 'dist', 'bin', 'next'), 'build'], 'next build');
 
 // 2. Pastagem: standalone + assets estáticos + public
@@ -40,7 +43,7 @@ if (existsSync(path.join(ROOT, 'public'))) cpSync(path.join(ROOT, 'public'), pat
 // 3. Um único ficheiro (a API recusa cópias com >1000 ficheiros)
 const tar = path.join(ROOT, 'app.tar.gz');
 rmSync(tar, { force: true });
-run('tar', ['-czf', tar, '-C', stage, '.'], 'tar -czf app.tar.gz');
+run('C:\\Windows\\System32\\tar.exe', ['-czf', tar, '-C', stage, '.'], 'tar -czf app.tar.gz');
 
 // 4. Upload para /tmp e substituição limpa em /app
 gaudi(['workload', 'copy-file', '-i', WORKLOAD, '--file', tar, '--path', '/tmp', '--filename', 'app.tar.gz'], 'upload app.tar.gz');

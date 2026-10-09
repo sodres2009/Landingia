@@ -4,6 +4,8 @@ export type Status = 'draft' | 'published' | 'paused';
 export type DeviceMode = 'desktop' | 'tablet' | 'mobile';
 
 export type ElementType =
+  | 'countdown'
+  | 'float'
   | 'text'
   | 'list'
   | 'image'
@@ -20,6 +22,12 @@ export type ElementType =
   | 'social'
   | 'stats'
   | 'marquee'
+  | 'demo'
+  | 'steps'
+  | 'comparison'
+  | 'quote'
+  | 'chart'
+  | 'footer'
   | 'custom';
 
 export interface BuilderElement {
@@ -54,6 +62,20 @@ export interface SocialLink {
   label?: string;
 }
 
+/** Tema visual decidido pelo agente a nível da página (opcional — sem tema, aspeto default). */
+export interface PageTheme {
+  mode: 'light' | 'dark';
+  bg: string;
+  ink: string;
+  accent: string;
+  accent2?: string;
+  radius?: number;
+  /** Par de fontes de lista fixa: modern | editorial | humanist | mono. */
+  font?: string;
+  /** Gradiente do hero: aurora | sunset | mint | mono. */
+  gradient?: string;
+}
+
 /** Contexto de marca/produto que o agente IA preserva entre edições. */
 export interface AiContext {
   brandSummary?: string;
@@ -66,9 +88,14 @@ export interface AiContext {
   visualQueries?: string[];
   fileSummaries?: Array<{ name: string; type: string; summary?: string }>;
   answers?: Record<string, string>;
+  /** Fotos enviadas pelo cliente (produto/espaço) — têm prioridade sobre stock. */
+  contentSources?: string[];
 }
 
 export interface LandingPage {
+  kind?: "builder" | "studio";  // studio = HTML livre do segundo gerador
+  html?: string;
+  phone?: string;
   id: string;
   name: string;
   status: Status;
@@ -79,6 +106,7 @@ export interface LandingPage {
   logo?: { url: string; alt?: string };
   socialLinks?: SocialLink[];
   aiContext?: AiContext;
+  theme?: PageTheme;
   sections: BuilderSection[];
   visits?: number;
   leads?: number;
@@ -98,6 +126,8 @@ export interface Lead {
   pageName?: string;
   createdAt: string;
   consent?: boolean;
+  /** Respostas do formulário fora dos campos fixos (empresa, cargo, tipo de demo, desafio…). */
+  answers?: Record<string, string>;
   notes?: string[];
 }
 
@@ -133,6 +163,7 @@ export interface AiPlan {
   visualQueries: string[];
   brandSummary?: string;
   productSummary?: string;
+  theme?: PageTheme;
   questions: AiPlanQuestion[];
   sections: Array<Omit<BuilderSection, 'id'> & { id?: string }>;
 }

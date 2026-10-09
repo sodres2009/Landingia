@@ -186,22 +186,26 @@ function normalizeSections(raw: unknown[]): AiPlan['sections'] {
 /**
  * Escolhe imagens com base no que a IA escreveu para cada slot:
  * usa o `alt` que ela pediu, os `visualQueries` e o resumo do produto.
- * Assim a foto corresponde ao conteúdo da página, nunca a um arquivo aleatório.
+ * Pexels primeiro (foto real), catálogo curado como fallback.
  */
-function applyImages(plan: AiPlan): AiPlan {
+async function applyImages(plan: AiPlan): Promise<AiPlan> {
   const pool = [plan.productSummary ?? '', plan.brandSummary ?? '', ...(plan.visualQueries ?? [])].filter(Boolean).join(' ');
+  const used: string[] = [];
   let i = 0;
-  const fill = (c: Record<string, unknown>, sectionTitle: string, role: string) => {
+  const fill = async (c: Record<string, unknown>, sectionTitle: string, role: string) => {
     const query = `${String(c.alt ?? '')} ${sectionTitle} ${pool}`.trim();
-    return pickImageForRole(query || pool, role, [], i++);
+    const photo = await pickImageForRole(query || pool, role, used, i++);
+    used.push(photo.url);
+    if (photo.alt && !String(c.alt ?? '').trim()) c.alt = photo.alt;
+    return photo.url;
   };
   for (const s of plan.sections) {
     for (const el of s.elements) {
       const c = el.content as Record<string, unknown>;
-      if (el.type === 'image' && !String(c.url ?? '').trim()) c.url = fill(c, s.title, s.type);
+      if (el.type === 'image' && !String(c.url ?? '').trim()) c.url = await fill(c, s.title, s.type);
       if (el.type === 'gallery' && Array.isArray(c.images)) {
         for (const g of c.images as Array<Record<string, unknown>>) {
-          if (!String(g.url ?? '').trim()) g.url = fill(g, s.title, s.type);
+          if (!String(g.url ?? '').trim()) g.url = await fill(g, s.title, s.type);
         }
       }
     }
@@ -217,13 +221,15 @@ function applyImages(plan: AiPlan): AiPlan {
   for (const s of wanted.slice(0, 3)) {
     if (!s || hasImage(s)) continue;
     const insertAt = s.elements.findIndex((e) => e.type === 'text' && (e.content as Record<string, unknown>).level === 'body');
-    s.elements.splice(insertAt >= 0 ? insertAt + 1 : 1, 0, { type: 'image', content: { url: pickImageForRole(`${s.title} ${pool}`, s.type, [], i++), alt: s.title } } as unknown as AiPlan['sections'][number]['elements'][number]);
+    const photo = await pickImageForRole(`${s.title} ${pool}`, s.type, used, i++);
+    used.push(photo.url);
+    s.elements.splice(insertAt >= 0 ? insertAt + 1 : 1, 0, { type: 'image', content: { url: photo.url, alt: s.title } } as unknown as AiPlan['sections'][number]['elements'][number]);
   }
   return plan;
 }
 
 /** Valida e normaliza o JSON de plano devolvido por um provider externo. */
-function toPlan(raw: Record<string, unknown>): AiPlan {
+async function toPlan(raw: Record<string, unknown>): Promise<AiPlan> {
   const sections = Array.isArray(raw.sections) ? normalizeSections(raw.sections) : [];
   if (!sections.length) throw new Error('O plano devolvido não tem secções.');
   return applyImages({
@@ -266,7 +272,7 @@ export const httpProvider: AiProvider = {
         // Passe 1: estratégia de copy (cacheada). Se falhar, o passe 2 segue só com o briefing.
         const strategy = await strategyPass(config, briefing, research);
         const text = await chatWithFallback(config, SYSTEM_PROMPT, planPrompt(briefing, research, strategy));
-        const plan = toPlan(extractJson(text));
+        const plan = await toPlan(extractJson(text));
         this.lastFallbackReason = undefined;
         return plan;
       } catch (error) {
@@ -329,14 +335,15 @@ export const httpProvider: AiProvider = {
     const config = envConfig();
     if (!config) return localProvider.image(request);
     try {
-      const user = `O utilizador quer mudar a imagem de um bloco de uma Landing Page.\nPEDIDO: ${request.instruction}\nNEGÓCIO: ${JSON.stringify({ objective: request.objective ?? '', product: request.context?.productSummary ?? '', visual: request.context?.visualDirection ?? '', queries: request.context?.visualQueries ?? [] })}\n\nDevolve APENAS JSON: {"tags":["tag-1","tag-2"],"alt":"descrição em PT-PT do que a foto deve mostrar"}.\nTAGS: 2-3 termos em inglês que PHOTOGRAPHERS usam no Flickr (pessoas/objetos/locais concretos, sem stopwords, sem "business" genérico se houver alternativa específica). A cena REAL que o pedido descreve, não conceitos abstratos.`;
+      const user = `O utilizador quer mudar a imagem de um bloco de uma Landing Page.\nPEDIDO: ${request.instruction}\nNEGÓCIO: ${JSON.stringify({ objective: request.objective ?? '', product: request.context?.productSummary ?? '', visual: request.context?.visualDirection ?? '', queries: request.context?.visualQueries ?? [] })}\n\nDevolve APENAS JSON: {"tags":["tag-1","tag-2"],"alt":"descrição em PT-PT do que a foto deve mostrar"}.\nTAGS: 2-3 termos em inglês que PHOTOGRAPHERS usam para etiquetar fotografias reais (pessoas/objetos/locais concretos, sem stopwords, sem "business" genérico se houver alternativa específica). A cena REAL que o pedido descreve, não conceitos abstratos.`;
       const raw = extractJson(await chatWithFallback(config, 'Traduz intenções visuais de design em tags de pesquisa fotográfica. Devolves apenas JSON válido.', user));
       const tags = Array.isArray(raw.tags) ? (raw.tags as unknown[]).map(String).filter((t) => /^[a-z0-9\s-]{2,40}$/i.test(t)).slice(0, 3) : [];
       if (!tags.length) throw new Error('modelo não devolveu tags');
       const alt = typeof raw.alt === 'string' && raw.alt.trim() ? raw.alt.trim() : request.instruction;
+      const photo = await pickByTags(tags, request.exclude ?? [], Math.floor(Math.random() * 1000));
       return {
-        url: pickByTags(tags, request.exclude ?? [], Math.floor(Math.random() * 1000)),
-        alt,
+        url: photo.url,
+        alt: photo.alt || alt,
         source: 'ai',
       };
     } catch {

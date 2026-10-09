@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import LandingRender from '@/components/builder/LandingRender';
+import { api, API_URL } from '@/lib/api';
 import type { LandingPage } from '@/lib/types';
 
-/** Página pública real: servida pelo servidor, funciona em qualquer dispositivo. */
+/** Página pública real: dados do backend (servidor), funciona em qualquer dispositivo. */
 export default function PublicPage({ params }: { params: Promise<{ slug: string }> }) {
   const [slug, setSlug] = useState<string>('');
   const [page, setPage] = useState<LandingPage | null | 'loading'>('loading');
@@ -12,26 +13,21 @@ export default function PublicPage({ params }: { params: Promise<{ slug: string 
   useEffect(() => {
     void params.then(({ slug: s }) => {
       setSlug(s);
-      void fetch(`/api/publish?slug=${encodeURIComponent(s)}`)
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('404'))))
-        .then((d: { page: LandingPage }) => setPage(d.page))
-        .catch(() => setPage(null));
+      void api.publishedGet(s).then((d) => {
+        // Studio: a página pública é o HTML servido pela API (runtime injetado + visitas lá).
+        if ((d.page as { kind?: string }).kind === "studio") {
+          window.location.replace(`${API_URL}/published/${encodeURIComponent(s)}/html`);
+          return;
+        }
+        setPage(d.page);
+      }).catch(() => setPage(null));
       // Contagem de visitantes reais (uma por abertura da página; falha silenciosa).
-      void fetch('/api/publish', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'visit', slug: s }),
-      }).catch(() => undefined);
+      void api.visit(s).catch(() => undefined);
     });
   }, [params]);
 
   async function submitForm(sectionId: string, elementId: string, values: Record<string, string>): Promise<string> {
-    const res = await fetch('/api/publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'lead', slug, sectionId, elementId, values }),
-    });
-    const data = (await res.json()) as { message?: string; error?: string };
-    if (!res.ok) throw new Error(data.error ?? 'Não foi possível enviar.');
+    const data = await api.leadAdd({ slug, sectionId, elementId, values });
     return data.message ?? 'Obrigado! Entraremos em contacto.';
   }
 

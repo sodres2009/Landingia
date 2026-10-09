@@ -1,1 +1,0 @@
-Erro 400: Too many files. Maximum number of files is 1000.

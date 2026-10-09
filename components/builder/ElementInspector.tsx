@@ -1,6 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import { uid } from '@/lib/storage';
+import { api } from '@/lib/api';
 import type { BuilderElement, BuilderSection, ElementType } from '@/lib/types';
 
 /**
@@ -12,7 +14,9 @@ import type { BuilderElement, BuilderSection, ElementType } from '@/lib/types';
 const TYPE_LABELS: Record<ElementType, string> = {
   text: 'Texto', list: 'Lista', button: 'Botão', image: 'Imagem', video: 'Vídeo', form: 'Formulário',
   scheduling: 'Agendamento', modal: 'Modal', testimonials: 'Testemunhos', faq: 'FAQ',
-  pricing: 'Preços', gallery: 'Galeria', map: 'Mapa', social: 'Redes', stats: 'Números', marquee: 'Marcas', custom: 'Custom',
+  pricing: 'Preços', gallery: 'Galeria', map: 'Mapa', social: 'Redes', stats: 'Números', marquee: 'Marcas', countdown: 'Contagem decrescente', float: 'Botão WhatsApp',
+  demo: 'Demonstração', steps: 'Passos', comparison: 'Comparação', quote: 'Citação',
+  chart: 'Gráfico', footer: 'Rodapé', custom: 'Custom',
 };
 
 export function newElement(type: ElementType): BuilderElement {
@@ -33,6 +37,12 @@ export function newElement(type: ElementType): BuilderElement {
     gallery: { images: [{ url: '', alt: '' }] },
     map: { query: 'Lisboa, Portugal' },
     social: { links: [] },
+    demo: { title: 'Painel', items: [{ who: 'ai', text: 'O que precisas hoje?' }, { who: 'me', text: 'Quero fechar três orçamentos até sexta.' }, { who: 'ai', text: 'Feito — aqui estão os teus números.' }], stats: [{ value: '12', label: 'propostas ativas' }, { value: '4,9★', label: 'satisfação' }, { value: '-38%', label: 'tempo perdido' }] },
+    steps: { items: [{ title: 'Fala connosco', text: 'Descreves o que precisas, sem formulários intermináveis.' }, { title: 'Recebes a proposta', text: 'Orçamento claro em 24 horas, sem surpresas.' }, { title: 'Está resolvido', text: 'Tratamos de tudo e acompanhamos até ao fim.' }] },
+    comparison: { left: { title: 'Sem nós', items: ['Horas perdidas em burocracia', 'Respostas em dias', 'Erros que custam dinheiro'] }, right: { title: 'Com nós', items: ['Tudo tratado num só sítio', 'Resposta em minutos', 'Acompanhamento com provas'] } },
+    quote: { text: 'Desde que trabalhámos com eles, fechamos o dobro dos negócios no mesmo tempo.', author: 'Nome do cliente', role: 'Cargo, Empresa' },
+    chart: { title: 'Uso por equipa', items: [{ label: 'Equipa A', value: 10 }, { label: 'Equipa B', value: 6 }], unit: '' },
+    footer: { cols: [{ title: 'Produto', items: [{ label: 'Funcionalidades', url: '#funcionalidades' }] }], note: 'Feito com atenção ao detalhe.' },
     custom: { text: '' },
   };
   return { id: uid(), type, content: content[type] as Record<string, unknown> };
@@ -111,6 +121,7 @@ export default function ElementInspector({
       {element.type === 'image' && (
         <>
           <Input label="URL da imagem" value={String(c.url ?? '')} onChange={set('url')} />
+          <PhotoUpload onPicked={(url, alt) => onChange({ ...c, url, alt: alt || String(c.alt ?? '') })} />
           <Input label="Descrição (alt)" value={String(c.alt ?? '')} onChange={set('alt')} />
           <p className="intro" style={{ margin: 0 }}>💡 Para trocar a imagem por outra adequada, use o Assistente IA à direita.</p>
         </>
@@ -199,11 +210,43 @@ export default function ElementInspector({
       <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
         <span className="ai-label">ADICIONAR À SECÇÃO “{section.title}”</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
-          {(['text', 'list', 'button', 'image', 'video', 'stats', 'marquee', 'form', 'scheduling', 'testimonials', 'faq', 'pricing', 'gallery', 'map', 'modal', 'social', 'custom'] as ElementType[]).map((t) => (
+          {(['text', 'list', 'button', 'image', 'video', 'stats', 'marquee', 'demo', 'steps', 'comparison', 'quote', 'chart', 'footer', 'form', 'scheduling', 'testimonials', 'faq', 'pricing', 'gallery', 'map', 'modal', 'social', 'custom'] as ElementType[]).map((t) => (
             <button key={t} className="chip" onClick={() => onAdd(t)}>{TYPE_LABELS[t]}</button>
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Botão «usar uma foto minha» — envia para o servidor e preenche a imagem. */
+function PhotoUpload({ onPicked }: { onPicked: (url: string, alt?: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <div className="field" style={{ gap: 6 }}>
+      <label>Usar uma foto do teu produto/espaço</label>
+      <label className="btn small" style={{ cursor: 'pointer', alignSelf: 'flex-start' }}>
+        {busy ? '⏳ A enviar…' : '📎 Enviar foto'}
+        <input
+          type="file"
+          accept="image/*"
+          hidden
+          disabled={busy}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.currentTarget.value = '';
+            if (!f) return;
+            setBusy(true);
+            setError('');
+            api.uploadPhoto(f)
+              .then(({ url }) => onPicked(url, f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ')))
+              .catch((err) => setError(err instanceof Error ? err.message : 'Falha ao enviar.'))
+              .finally(() => setBusy(false));
+          }}
+        />
+      </label>
+      {error && <small style={{ color: '#f87171' }}>{error}</small>}
     </div>
   );
 }
